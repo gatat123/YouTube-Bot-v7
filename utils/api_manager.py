@@ -1,3 +1,58 @@
+"""
+API 관리 및 Rate Limiting 시스템
+"""
+
+import asyncio
+import aiohttp
+from typing import Dict, List, Optional, Any, Callable
+from datetime import datetime, timedelta
+from collections import defaultdict
+import logging
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+from config import config
+
+logger = logging.getLogger(__name__)
+
+
+class APIRateLimiter:
+    """API Rate Limiting 관리"""
+    
+    def __init__(self, calls_per_minute: int):
+        self.calls_per_minute = calls_per_minute
+        self.calls_history: List[datetime] = []
+        self.lock = asyncio.Lock()
+    
+    async def check_rate_limit(self, api_name: str):
+        """Rate limit 체크 및 대기"""
+        async with self.lock:
+            now = datetime.now()
+            
+            # 1분 이전 기록 정리
+            cutoff = now - timedelta(minutes=1)
+            self.calls_history = [call_time for call_time in self.calls_history if call_time > cutoff]
+            
+            # Rate limit 체크
+            if len(self.calls_history) >= self.calls_per_minute:
+                oldest_call = min(self.calls_history)
+                wait_time = 60 - (now - oldest_call).total_seconds()
+                
+                if wait_time > 0:
+                    logger.info(f"{api_name} rate limit 도달. {wait_time:.1f}초 대기")
+                    await asyncio.sleep(wait_time)
+            
+            # 현재 호출 기록
+            self.calls_history.append(now)
+
+
+class APIManager:
+    """통합 API 관리자"""
+    
+    def __init__(self):
+        self.session: Optional[aiohttp.ClientSession] = None
+        
+        # Rate limiters
+        self.rate_limiters = {
             'youtube': APIRateLimiter(100),          # 100 calls/min
             'claude': APIRateLimiter(50),             # 50 calls/min
             'gemini': APIRateLimiter(60),             # 60 calls/min
