@@ -1,16 +1,99 @@
-youtube.youtube:
+"""
+경쟁자 분석 모듈 - YouTube 채널 경쟁 분석
+"""
+
+from typing import List, Dict, Any, Optional
+import asyncio
+import logging
+from datetime import datetime
+import numpy as np
+
+from services import YouTubeService
+from utils import cache_manager
+
+logger = logging.getLogger(__name__)
+
+
+class CompetitorAnalyzer:
+    """YouTube 경쟁자 분석 클래스"""
+    
+    def __init__(self):
+        self.youtube = YouTubeService()
+        logger.info("경쟁자 분석기 초기화 완료")
+    
+    @cache_manager.cache_keywords("competitor_analysis", ttl=7200, category="competitor")
+    async def analyze_competitors(self, keywords: List[Dict], youtube_data: List[Dict], 
+                                 depth: int = 5) -> Dict[str, Any]:
+        """키워드별 경쟁자 분석"""
+        
+        if not keywords:
+            return {}
+        
+        try:
+            logger.info(f"경쟁자 분석 시작: {len(keywords)}개 키워드")
+            
+            analysis_results = {}
+            
+            # 각 키워드별 경쟁자 분석
+            for keyword_data in keywords[:10]:  # 상위 10개만 분석
+                keyword = keyword_data.get('keyword', '')
+                if not keyword:
+                    continue
+                
+                # 상위 채널 분석
+                top_channels = await self._analyze_top_channels(keyword, depth)
+                
+                # 콘텐츠 갭 분석
+                content_gaps = await self._analyze_content_gaps(keyword, top_channels)
+                
+                # 업로드 패턴 분석
+                upload_patterns = self._analyze_upload_patterns(top_channels)
+                
+                # 협업 기회 분석
+                collaboration_opportunities = self._analyze_collaboration_opportunities(top_channels)
+                
+                # 경쟁 환경 분석
+                competitive_landscape = self._analyze_competitive_landscape(top_channels)
+                
+                analysis_results[keyword] = {
+                    'top_competitors': top_channels[:5],
+                    'content_gaps': content_gaps,
+                    'upload_patterns': upload_patterns,
+                    'collaboration_opportunities': collaboration_opportunities,
+                    'competitive_landscape': competitive_landscape,
+                    'opportunity_score': self._calculate_opportunity_score(
+                        top_channels, content_gaps, competitive_landscape
+                    ),
+                    'entry_difficulty': competitive_landscape.get('entry_difficulty', 'medium'),
+                    'analyzed_at': datetime.now().isoformat()
+                }
+            
+            logger.info(f"경쟁자 분석 완료: {len(analysis_results)}개 키워드")
+            return analysis_results
+            
+        except Exception as e:
+            logger.error(f"경쟁자 분석 오류: {e}", exc_info=True)
+            return {}
+    
+    async def _analyze_top_channels(self, keyword: str, depth: int = 5) -> List[Dict[str, Any]]:
+        """키워드 관련 상위 채널 분석"""
+        
+        if not self.youtube or not self.youtube.youtube:
             return []
         
         try:
             # 키워드로 상위 영상 검색
-            search_response = self.youtube.youtube.search().list(
-                q=keyword,
-                part='id,snippet',
-                type='video',
-                order='viewCount',
-                maxResults=depth * 3,  # 여러 채널 확보를 위해 더 많이 검색
-                regionCode='KR'
-            ).execute()
+            search_response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.youtube.youtube.search().list(
+                    q=keyword,
+                    part='id,snippet',
+                    type='video',
+                    order='viewCount',
+                    maxResults=depth * 3,  # 여러 채널 확보를 위해 더 많이 검색
+                    regionCode='KR'
+                ).execute()
+            )
             
             # 채널별 영상 그룹화
             channel_videos = {}
@@ -248,23 +331,24 @@ youtube.youtube:
             ]
             
             # 시장 리더와 신흥 채널 분류
-            landscape['market_leaders'] = [
-                {
-                    'channel': ch['channel_title'],
-                    'subscribers': ch['subscriber_count'],
-                    'dominance': f"{(ch['subscriber_count'] / total_subs * 100):.1f}%"
-                }
-                for ch in top_channels[:3]
-            ]
-            
-            landscape['emerging_players'] = [
-                {
-                    'channel': ch['channel_title'],
-                    'growth_rate': ch.get('growth_rate', 0),
-                    'potential': 'high' if ch.get('growth_rate', 0) > 30 else 'medium'
-                }
-                for ch in top_channels if ch.get('growth_rate', 0) > 20
-            ][:3]
+            if top_channels:
+                landscape['market_leaders'] = [
+                    {
+                        'channel': ch['channel_title'],
+                        'subscribers': ch['subscriber_count'],
+                        'dominance': f"{(ch['subscriber_count'] / total_subs * 100):.1f}%" if total_subs > 0 else "0%"
+                    }
+                    for ch in top_channels[:3]
+                ]
+                
+                landscape['emerging_players'] = [
+                    {
+                        'channel': ch['channel_title'],
+                        'growth_rate': ch.get('growth_rate', 0),
+                        'potential': 'high' if ch.get('growth_rate', 0) > 30 else 'medium'
+                    }
+                    for ch in top_channels if ch.get('growth_rate', 0) > 20
+                ][:3]
             
         except Exception as e:
             logger.error(f"경쟁 환경 분석 오류: {e}")
@@ -355,5 +439,37 @@ youtube.youtube:
         content_types = channel.get('content_strategy', {}).get('content_types', [])
         if len(content_types) >= 3:
             score += 10
+        
+        return min(100, score)
+    
+    def _calculate_opportunity_score(self, top_channels: List[Dict], content_gaps: List[str], 
+                                   competitive_landscape: Dict[str, Any]) -> float:
+        """기회 점수 계산"""
+        
+        score = 50.0
+        
+        try:
+            # 콘텐츠 갭 점수
+            gap_score = min(30, len(content_gaps) * 2)
+            score += gap_score
+            
+            # 경쟁 강도 점수
+            entry_difficulty = competitive_landscape.get('entry_difficulty', 'medium')
+            if entry_difficulty == 'low':
+                score += 20
+            elif entry_difficulty == 'medium':
+                score += 10
+            
+            # 성장 잠재력 점수
+            growth_potential = competitive_landscape.get('growth_potential', 'medium')
+            if growth_potential == 'very_high':
+                score += 20
+            elif growth_potential == 'high':
+                score += 15
+            elif growth_potential == 'medium':
+                score += 10
+            
+        except Exception as e:
+            logger.error(f"기회 점수 계산 오류: {e}")
         
         return min(100, score)
