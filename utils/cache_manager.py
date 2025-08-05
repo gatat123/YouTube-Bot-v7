@@ -6,7 +6,7 @@ import asyncio
 import json
 import hashlib
 import time
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Callable
 from datetime import datetime, timedelta
 import logging
 from cachetools import TTLCache, LRUCache
@@ -14,6 +14,7 @@ import asyncpg
 import os
 from dataclasses import dataclass, asdict
 from dataclasses_json import dataclass_json
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +290,35 @@ class CacheManager:
             "db_saves": self.stats["db_saves"],
             "db_loads": self.stats["db_loads"]
         }
+    
+    def cache_keywords(self, prefix: str, ttl: Optional[int] = None, 
+                      category: str = "general") -> Callable:
+        """키워드 캐싱 데코레이터"""
+        def decorator(func: Callable) -> Callable:
+            @wraps(func)
+            async def wrapper(*args, **kwargs):
+                # 캐시 키 생성
+                cache_key = self._generate_key(prefix, {
+                    'args': str(args[1:]),  # self는 제외
+                    'kwargs': kwargs
+                })
+                
+                # 캐시에서 조회
+                cached_result = await self.get(cache_key)
+                if cached_result is not None:
+                    logger.debug(f"캐시 히트: {cache_key}")
+                    return cached_result
+                
+                # 함수 실행
+                logger.debug(f"캐시 미스: {cache_key}, 함수 실행 중")
+                result = await func(*args, **kwargs)
+                
+                # 결과 캐싱
+                await self.set(cache_key, result, ttl=ttl, category=category)
+                
+                return result
+            return wrapper
+        return decorator
     
     async def close(self):
         """리소스 정리"""
