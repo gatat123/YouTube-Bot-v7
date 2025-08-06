@@ -124,6 +124,9 @@ async def analyze_command(
 ):
     """메인 분석 명령어"""
     
+    # 즉시 defer로 응답 - 3초 타임아웃 방지
+    await interaction.response.defer(thinking=True)
+    
     # 진행 상황 추적 시작
     tracker = ProgressTracker(interaction)
     await tracker.initialize("🚀 YouTube 키워드 분석 시작...")
@@ -145,7 +148,7 @@ async def analyze_command(
         
         await tracker.update_sub_progress(1.0, f"{len(expanded_keywords)}개 키워드 생성 완료")
         
-        # === Phase 2: Google Trends 분석 ===
+        # === Phase 2: Google Trends 분석 (비동기 처리) ===
         await tracker.update_stage(ProgressStage.TRENDS_ANALYSIS)
         
         # 배치 진행 상황 업데이트
@@ -153,7 +156,7 @@ async def analyze_command(
             progress = completed / total if total > 0 else 0
             await tracker.update_sub_progress(progress, f"{completed}/{total} 배치 분석 중")
         
-        # 트렌드 분석 실행
+        # 트렌드 분석 실행 - 비동기 메서드 사용
         trend_results = await bot.trend_analyzer.analyze_keywords(
             keywords=[kw.keyword for kw in expanded_keywords],
             category=category,
@@ -176,6 +179,7 @@ async def analyze_command(
         
         youtube_data = []
         if config.api.youtube_key:
+            # YouTube API 호출도 비동기 처리
             youtube_data = await bot.youtube_service.analyze_keywords(
                 [kw['keyword'] for kw in filtered_keywords_1st[:30]],  # API 제한
                 progress_callback=lambda c, t: asyncio.create_task(
@@ -252,9 +256,25 @@ async def analyze_command(
         cache_stats = cache_manager.get_stats()
         logger.info(f"분석 완료 - 캐시 통계: {cache_stats}")
         
+    except asyncio.TimeoutError:
+        logger.error("분석 타임아웃")
+        error_embed = discord.Embed(
+            title="⏱️ 시간 초과",
+            description="분석이 너무 오래 걸려 중단되었습니다. 다시 시도해주세요.",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=error_embed)
+        
     except Exception as e:
         logger.error(f"분석 중 오류 발생: {e}", exc_info=True)
         await tracker.error(f"❌ 오류 발생: {str(e)}")
+        
+        error_embed = discord.Embed(
+            title="❌ 분석 오류",
+            description=f"분석 중 문제가 발생했습니다: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=error_embed)
 
 
 def create_final_report(content: str, category: Optional[str], 
@@ -330,6 +350,8 @@ def create_final_report(content: str, category: Optional[str],
 @bot.tree.command(name="cache_stats", description="캐시 상태 확인")
 async def cache_stats_command(interaction: discord.Interaction):
     """캐시 통계 확인"""
+    await interaction.response.defer()
+    
     stats = cache_manager.get_stats()
     
     embed = discord.Embed(
@@ -360,7 +382,7 @@ async def cache_stats_command(interaction: discord.Interaction):
             inline=True
         )
     
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 # === 봇 실행 ===
