@@ -25,6 +25,8 @@ class APIConfig:
     discord_token: str
     gemini_key: str  # Gemini가 주요 AI
     youtube_key: Optional[str]
+    tiktok_key: Optional[str] = None  # TikTok API 키 (선택적)
+    twitter_bearer: Optional[str] = None  # Twitter Bearer Token (선택적)
     
     # PostgreSQL 설정 (Railway)
     pg_host: Optional[str] = None
@@ -40,6 +42,8 @@ class APIConfig:
             discord_token=os.getenv('DISCORD_BOT_TOKEN', ''),
             gemini_key=os.getenv('GEMINI_API_KEY', ''),
             youtube_key=os.getenv('YOUTUBE_API_KEY'),
+            tiktok_key=os.getenv('TIKTOK_API_KEY'),
+            twitter_bearer=os.getenv('TWITTER_BEARER_TOKEN'),
             # PostgreSQL (Railway 자동 제공)
             pg_host=os.getenv('PGHOST'),
             pg_port=int(os.getenv('PGPORT', 5432)) if os.getenv('PGPORT') else None,
