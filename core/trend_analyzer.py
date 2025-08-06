@@ -1,429 +1,244 @@
-# core/trend_analyzer.py 수정
-
-import logging
-from typing import Dict, List, Optional, Tuple, Callable
-import pandas as pd
-from datetime import datetime, timedelta
+# core/trend_analyzer.py
 import asyncio
-import re
+import logging
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+from datetime import datetime
+import pandas as pd
 
-logger = logging.getLogger(__name__)
+@dataclass
+class TrendAnalysis:
+    """트렌드 분석 결과 데이터 클래스"""
+    keyword: str
+    google_trends: Optional[Dict[str, Any]] = None
+    youtube_metrics: Optional[Dict[str, Any]] = None
+    social_media: Optional[Dict[str, Any]] = None
+    opportunity_score: float = 0.0
+    confidence_score: float = 0.0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            'keyword': self.keyword,
+            'google_trends': self.google_trends,
+            'youtube_metrics': self.youtube_metrics,
+            'social_media': self.social_media,
+            'opportunity_score': self.opportunity_score,
+            'confidence_score': self.confidence_score
+        }
 
 class TrendAnalyzer:
-    """트렌드 분석 클래스"""
-    
-    def __init__(self, trends_service, keyword_expander, cache_manager=None):
+    def __init__(self, trends_service, youtube_service, api_manager, progress_tracker=None):
         self.trends_service = trends_service
-        self.keyword_expander = keyword_expander
-        self.cache = cache_manager
+        self.youtube_service = youtube_service
+        self.api_manager = api_manager
+        self.progress_tracker = progress_tracker
+        self.logger = logging.getLogger('core.trend_analyzer')
         
-    async def analyze_keywords(self, keywords: List[str], category: Optional[str] = None, 
-                              progress_callback: Optional[Callable] = None) -> List[Dict]:
+    async def analyze_keywords(self, keywords: List[str], category: str = None, 
+                             progress_callback=None) -> List[TrendAnalysis]:
         """
-        여러 키워드를 배치로 분석
+        키워드 리스트에 대한 종합적인 트렌드 분석 (비동기)
         
         Args:
             keywords: 분석할 키워드 리스트
-            category: 카테고리
+            category: 카테고리 정보
             progress_callback: 진행 상황 콜백 함수
             
         Returns:
-            트렌드 분석 결과 리스트
+            List[TrendAnalysis]: 분석 결과 리스트
         """
-        results = []
-        total = len(keywords)
-        completed = 0
+        self.logger.info(f"🔍 {len(keywords)}개 키워드 트렌드 분석 시작")
         
-        # 배치 크기 설정 (Google Trends API 제한 고려)
-        batch_size = 5
+        analyses = []
+        batch_size = 5  # Google Trends API 제한
         
-        for i in range(0, total, batch_size):
+        total_batches = (len(keywords) + batch_size - 1) // batch_size
+        
+        for i in range(0, len(keywords), batch_size):
             batch = keywords[i:i+batch_size]
+            batch_num = i // batch_size + 1
             
             try:
-                # 배치 분석
-                batch_data = self.trends_service.get_interest_over_time(batch)
+                # Google Trends 데이터 수집 (비동기)
+                self.logger.info(f"📊 배치 {batch_num}/{total_batches} Google Trends 분석")
                 
-                if batch_data is not None:
-                    # 각 키워드별로 결과 처리
-                    for keyword in batch:
-                        if keyword in batch_data.columns:
-                            keyword_data = batch_data[keyword]
-                            
-                            # 트렌드 방향 계산
-                            trend_direction = self._calculate_trend_direction(keyword_data)
-                            
-                            # 평균 관심도
-                            avg_interest = float(keyword_data.mean())
-                            
-                            results.append({
-                                'keyword': keyword,
-                                'trend_direction': trend_direction,
-                                'average_interest': avg_interest,
-                                'max_interest': float(keyword_data.max()),
-                                'min_interest': float(keyword_data.min()),
-                                'is_real_data': True,
-                                'data_points': len(keyword_data)
-                            })
-                        else:
-                            # 데이터가 없는 경우
-                            results.append({
-                                'keyword': keyword,
-                                'trend_direction': 'unknown',
-                                'average_interest': 0,
-                                'max_interest': 0,
-                                'min_interest': 0,
-                                'is_real_data': False,
-                                'data_points': 0
-                            })
-                else:
-                    # 배치 전체 실패시 기본값
-                    for keyword in batch:
-                        results.append({
-                            'keyword': keyword,
-                            'trend_direction': 'unknown',
-                            'average_interest': 0,
-                            'max_interest': 0,
-                            'min_interest': 0,
-                            'is_real_data': False,
+                # 비동기 호출 사용
+                batch_data = await self.trends_service.get_interest_over_time_async(batch)
+                
+                # 배치 데이터 처리
+                for keyword in batch:
+                    analysis = TrendAnalysis(keyword=keyword)
+                    
+                    if not batch_data.empty and keyword in batch_data.columns:
+                        analysis.google_trends = {
+                            'relative_score': self.trends_service.get_average_interest(batch_data, keyword),
+                            'growth_rate': self.trends_service.calculate_growth_rate(batch_data, keyword),
+                            'trend_direction': self.trends_service.get_trend_direction(batch_data, keyword),
+                            'data_points': len(batch_data)
+                        }
+                    else:
+                        analysis.google_trends = {
+                            'relative_score': 0,
+                            'growth_rate': 0,
+                            'trend_direction': 'no_data',
                             'data_points': 0
-                        })
-                        
+                        }
+                    
+                    analyses.append(analysis)
+                
+                # 진행 상황 업데이트
+                if progress_callback:
+                    progress = (batch_num / total_batches) * 100
+                    await progress_callback(progress, f"배치 {batch_num}/{total_batches} 완료")
+                
+                # 배치 간 짧은 대기 (비동기)
+                if i + batch_size < len(keywords):
+                    await asyncio.sleep(0.5)  # 비동기 sleep 사용
+                    
             except Exception as e:
-                logger.error(f"배치 분석 실패: {e}")
+                self.logger.error(f"❌ 배치 {batch_num} 분석 실패: {e}")
                 # 실패한 배치의 키워드들에 대해 기본값 설정
                 for keyword in batch:
-                    results.append({
-                        'keyword': keyword,
-                        'trend_direction': 'unknown',
-                        'average_interest': 0,
-                        'max_interest': 0,
-                        'min_interest': 0,
-                        'is_real_data': False,
-                        'data_points': 0
-                    })
-            
-            # 진행 상황 업데이트
-            completed += len(batch)
-            if progress_callback:
-                await progress_callback(completed, total)
-            
-            # API 제한 대응을 위한 대기
-            if i + batch_size < total:
-                await asyncio.sleep(2)  # 2초 대기
-        
-        return results
-        
-    def filter_keywords_first_pass(self, keywords: List, trend_results: List[Dict], 
-                                  target_count: int = 60) -> List[Dict]:
-        """
-        1차 키워드 필터링 - 트렌드 데이터 기반
-        
-        Args:
-            keywords: 확장된 키워드 리스트 (KeywordResult 객체들)
-            trend_results: 트렌드 분석 결과
-            target_count: 목표 키워드 수
-            
-        Returns:
-            필터링된 키워드 리스트
-        """
-        # 트렌드 결과를 딕셔너리로 변환
-        trend_dict = {result['keyword']: result for result in trend_results}
-        
-        # 키워드와 트렌드 데이터 결합
-        keyword_data = []
-        for kw in keywords:
-            keyword_str = kw.keyword if hasattr(kw, 'keyword') else str(kw)
-            trend_info = trend_dict.get(keyword_str, {})
-            
-            keyword_data.append({
-                'keyword': keyword_str,
-                'relevance': getattr(kw, 'relevance', 0.5),
-                'trend_direction': trend_info.get('trend_direction', 'unknown'),
-                'average_interest': trend_info.get('average_interest', 0),
-                'is_real_data': trend_info.get('is_real_data', False)
-            })
-        
-        # 점수 계산 및 정렬
-        for data in keyword_data:
-            score = 0
-            
-            # 관련성 점수
-            score += data['relevance'] * 30
-            
-            # 트렌드 점수
-            if data['trend_direction'] == 'rising':
-                score += 20
-            elif data['trend_direction'] == 'stable':
-                score += 10
-            
-            # 평균 관심도 점수
-            score += min(data['average_interest'] / 2, 30)
-            
-            # 실제 데이터 보너스
-            if data['is_real_data']:
-                score += 10
-                
-            data['score'] = score
-        
-        # 점수로 정렬
-        sorted_keywords = sorted(keyword_data, key=lambda x: x['score'], reverse=True)
-        
-        return sorted_keywords[:target_count]
-        
-    def filter_keywords_second_pass(self, keywords: List[Dict], youtube_data: List[Dict], 
-                                   competitor_data: Dict, target_count: int = 40) -> List[Dict]:
-        """
-        2차 키워드 필터링 - YouTube 데이터 기반
-        
-        Args:
-            keywords: 1차 필터링된 키워드
-            youtube_data: YouTube API 데이터
-            competitor_data: 경쟁자 분석 데이터
-            target_count: 목표 키워드 수
-            
-        Returns:
-            최종 필터링된 키워드 리스트
-        """
-        # YouTube 데이터로 키워드 보강
-        youtube_dict = {item['keyword']: item for item in youtube_data}
+                    analysis = TrendAnalysis(
+                        keyword=keyword,
+                        google_trends={
+                            'relative_score': 0,
+                            'growth_rate': 0,
+                            'trend_direction': 'error',
+                            'data_points': 0
+                        }
+                    )
+                    analyses.append(analysis)
         
         # 기회 점수 계산
-        for kw in keywords:
-            keyword = kw['keyword'] if isinstance(kw, dict) else kw
+        for analysis in analyses:
+            analysis.opportunity_score = self._calculate_opportunity_score(analysis)
+            analysis.confidence_score = self._calculate_confidence_score(analysis)
+        
+        self.logger.info(f"✅ 트렌드 분석 완료: {len(analyses)}개 키워드")
+        return analyses
+    
+    def _calculate_opportunity_score(self, analysis: TrendAnalysis) -> float:
+        """
+        종합적인 기회 점수 계산
+        
+        Args:
+            analysis: 트렌드 분석 결과
             
-            # YouTube 데이터 반영
-            yt_data = youtube_dict.get(keyword, {})
-            competition = yt_data.get('competition_level', 'medium')
-            avg_views = yt_data.get('average_views', 0)
+        Returns:
+            float: 0-100 사이의 기회 점수
+        """
+        score = 0
+        weights = {
+            'google_trends': 0.5,
+            'youtube_metrics': 0.5,
+            'social_media': 0.0  # v7에서 제거됨
+        }
+        
+        # Google Trends 점수
+        if analysis.google_trends:
+            trends_score = 0
             
-            # 경쟁자 데이터 반영
-            comp_data = competitor_data.get(keyword, {})
+            # 상대적 인기도
+            relative_score = analysis.google_trends.get('relative_score', 0)
+            if relative_score > 70:
+                trends_score += 20
+            elif relative_score > 50:
+                trends_score += 15
+            elif relative_score > 30:
+                trends_score += 10
+            elif relative_score > 0:
+                trends_score += 5
             
-            # 기회 점수 계산 (0-100)
-            opportunity_score = 50.0
+            # 성장률
+            growth_rate = analysis.google_trends.get('growth_rate', 0)
+            if growth_rate > 50:
+                trends_score += 20
+            elif growth_rate > 20:
+                trends_score += 15
+            elif growth_rate > 0:
+                trends_score += 10
+            elif growth_rate > -20:
+                trends_score += 5
             
-            # 경쟁도 반영
+            # 트렌드 방향
+            trend_direction = analysis.google_trends.get('trend_direction', 'unknown')
+            if trend_direction == 'rising':
+                trends_score += 10
+            elif trend_direction == 'stable':
+                trends_score += 5
+            
+            score += trends_score * weights['google_trends']
+        
+        # YouTube 메트릭 점수
+        if analysis.youtube_metrics:
+            youtube_score = 0
+            
+            # 경쟁도
+            competition = analysis.youtube_metrics.get('competition', 'medium')
             if competition == 'low':
-                opportunity_score += 20
+                youtube_score += 20
+            elif competition == 'medium':
+                youtube_score += 10
             elif competition == 'high':
-                opportunity_score -= 20
-                
-            # 평균 조회수 반영
+                youtube_score += 5
+            
+            # 검색 결과 수
+            search_results = analysis.youtube_metrics.get('search_results', 0)
+            if search_results > 10000:
+                youtube_score += 15
+            elif search_results > 5000:
+                youtube_score += 10
+            elif search_results > 1000:
+                youtube_score += 5
+            
+            # 평균 조회수
+            avg_views = analysis.youtube_metrics.get('avg_views', 0)
             if avg_views > 100000:
-                opportunity_score += 10
-            elif avg_views < 10000:
-                opportunity_score -= 10
-                
-            # 트렌드 반영
-            if isinstance(kw, dict) and kw.get('trend_direction') == 'rising':
-                opportunity_score += 15
-            elif isinstance(kw, dict) and kw.get('trend_direction') == 'falling':
-                opportunity_score -= 15
-                
-            # 점수 범위 제한
-            opportunity_score = max(0, min(100, opportunity_score))
+                youtube_score += 15
+            elif avg_views > 50000:
+                youtube_score += 10
+            elif avg_views > 10000:
+                youtube_score += 5
             
-            # 결과 저장
-            if isinstance(kw, dict):
-                kw['opportunity_score'] = opportunity_score
-                kw['competition_level'] = competition
-                kw['average_views'] = avg_views
-            else:
-                # 단순 문자열인 경우 딕셔너리로 변환
-                keywords[keywords.index(kw)] = {
-                    'keyword': keyword,
-                    'opportunity_score': opportunity_score,
-                    'competition_level': competition,
-                    'average_views': avg_views,
-                    'trend_direction': 'unknown'
-                }
+            score += youtube_score * weights['youtube_metrics']
         
-        # 기회 점수로 정렬
-        sorted_keywords = sorted(keywords, 
-                               key=lambda x: x.get('opportunity_score', 0) if isinstance(x, dict) else 0, 
-                               reverse=True)
-        
-        return sorted_keywords[:target_count]
-        
-    async def analyze_trend(self, keyword: str, period: str = 'today 3-m') -> Dict:
-        """트렌드 분석 (우회 로직 포함)"""
-        try:
-            # 캐시 확인
-            if self.cache:
-                cache_key = f"trend_{keyword}_{period}"
-                cached = await self.cache.get(cache_key)
-                if cached:
-                    logger.info(f"캐시에서 트렌드 데이터 로드: {keyword}")
-                    return cached
-                    
-            # 키워드 확장
-            expanded_keywords = self.keyword_expander.expand_keyword(keyword)
-            
-            # 1차 필터링
-            filtered_keywords = self.filter_keywords_basic(expanded_keywords)
-            
-            # 2차 필터링 (관련성)
-            final_keywords = self.filter_keywords_by_relevance(filtered_keywords, keyword)
-            
-            # 배치 처리 (5개씩)
-            all_data = []
-            for i in range(0, len(final_keywords), 5):
-                batch = final_keywords[i:i+5]
-                if batch:
-                    try:
-                        data = self.trends_service.get_interest_over_time(batch, period)
-                        if data is not None:
-                            all_data.append(data)
-                    except Exception as e:
-                        logger.error(f"배치 처리 실패: {e}")
-                        
-            # 데이터 병합
-            if all_data:
-                combined_data = pd.concat(all_data, axis=1)
-                # 중복 컬럼 제거
-                combined_data = combined_data.loc[:, ~combined_data.columns.duplicated()]
-                
-                result = self._process_trend_data(combined_data, keyword)
-                
-                # 캐시 저장
-                if self.cache and result:
-                    await self.cache.set(cache_key, result, expire=3600)  # 1시간
-                    
-                return result
-            else:
-                logger.error(f"❌ 트렌드 데이터 획득 실패: {keyword}")
-                return None  # 실패시 None 반환
-                
-        except Exception as e:
-            logger.error(f"❌ 트렌드 분석 실패: {e}")
-            return None  # 실패시 None 반환
-            
-    def filter_keywords_basic(self, keywords: List[str], max_keywords: int = 30) -> List[str]:
+        # 정규화
+        return min(100, max(0, score))
+    
+    def _calculate_confidence_score(self, analysis: TrendAnalysis) -> float:
         """
-        기본 키워드 필터링 - 중복 제거, 길이 제한 등
+        데이터 신뢰도 점수 계산
+        
+        Args:
+            analysis: 트렌드 분석 결과
+            
+        Returns:
+            float: 0-100 사이의 신뢰도 점수
         """
-        filtered = []
-        seen = set()
+        confidence = 0
         
-        for keyword in keywords:
-            # 기본 정리
-            keyword = keyword.strip()
-            
-            # 길이 체크 (2-50자)
-            if len(keyword) < 2 or len(keyword) > 50:
-                continue
-                
-            # 특수문자 제거 (일부 허용)
-            keyword = re.sub(r'[^\w\s\-\_\.\#\@가-힣]', '', keyword)
-            
-            # 빈 문자열 체크
-            if not keyword:
-                continue
-                
-            # 중복 체크 (대소문자 구분 없이)
-            normalized = keyword.lower()
-            if normalized in seen:
-                continue
-                
-            seen.add(normalized)
-            filtered.append(keyword)
-            
-            # 최대 개수 제한
-            if len(filtered) >= max_keywords:
-                break
-                
-        logger.info(f"기본 필터링: {len(keywords)} → {len(filtered)} 키워드")
-        return filtered
+        # 데이터 소스별 가중치
+        source_weights = {
+            'google_trends': 40,
+            'youtube': 40,
+            'social_media': 20  # v7에서 미사용
+        }
         
-    def filter_keywords_by_relevance(self, keywords: List[str], base_keyword: str) -> List[str]:
-        """
-        관련성 기반 키워드 필터링
-        """
-        filtered = []
-        base_lower = base_keyword.lower()
+        # Google Trends 데이터 확인
+        if analysis.google_trends and analysis.google_trends.get('data_points', 0) > 0:
+            confidence += source_weights['google_trends']
+            
+            # 데이터 포인트가 많을수록 신뢰도 증가
+            data_points = analysis.google_trends.get('data_points', 0)
+            if data_points > 90:
+                confidence += 10
+            elif data_points > 30:
+                confidence += 5
         
-        # 관련성 점수 계산
-        scored_keywords = []
-        for keyword in keywords:
-            score = self._calculate_relevance_score(keyword, base_keyword)
-            scored_keywords.append((keyword, score))
-            
-        # 점수 기준 정렬
-        scored_keywords.sort(key=lambda x: x[1], reverse=True)
+        # YouTube 데이터 확인
+        if analysis.youtube_metrics and analysis.youtube_metrics.get('search_results', 0) > 0:
+            confidence += source_weights['youtube']
         
-        # 상위 키워드 선택
-        for keyword, score in scored_keywords[:20]:
-            if score > 0:
-                filtered.append(keyword)
-                
-        logger.info(f"관련성 필터링: {len(keywords)} → {len(filtered)} 키워드")
-        return filtered
-        
-    def _calculate_relevance_score(self, keyword: str, base_keyword: str) -> float:
-        """키워드 관련성 점수 계산"""
-        score = 0.0
-        keyword_lower = keyword.lower()
-        base_lower = base_keyword.lower()
-        
-        # 정확히 포함하면 높은 점수
-        if base_lower in keyword_lower:
-            score += 5.0
-            
-        # 부분 일치
-        for word in base_lower.split():
-            if word in keyword_lower:
-                score += 2.0
-                
-        # 길이 페널티 (너무 길면 감점)
-        if len(keyword) > 30:
-            score -= 1.0
-            
-        # 특수문자 많으면 감점
-        special_chars = len(re.findall(r'[^\w\s가-힣]', keyword))
-        score -= special_chars * 0.5
-        
-        return max(0, score)
-            
-    def _process_trend_data(self, data: pd.DataFrame, keyword: str) -> Dict:
-        """트렌드 데이터 처리"""
-        try:
-            # 기본 통계
-            stats = {}
-            for col in data.columns:
-                if col != 'isPartial':
-                    stats[col] = {
-                        'mean': float(data[col].mean()),
-                        'max': float(data[col].max()),
-                        'min': float(data[col].min()),
-                        'std': float(data[col].std()),
-                        'trend': self._calculate_trend_direction(data[col])
-                    }
-                    
-            return {
-                'keyword': keyword,
-                'period': f"{data.index[0]} ~ {data.index[-1]}",
-                'stats': stats,
-                'top_keywords': sorted(stats.items(), key=lambda x: x[1]['mean'], reverse=True)[:5],
-                'timestamp': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"데이터 처리 실패: {e}")
-            return None
-            
-    def _calculate_trend_direction(self, series: pd.Series) -> str:
-        """트렌드 방향 계산"""
-        if len(series) < 2:
-            return "stable"
-            
-        # 첫 30%와 마지막 30% 비교
-        first_part = series[:int(len(series) * 0.3)].mean()
-        last_part = series[-int(len(series) * 0.3):].mean()
-        
-        if last_part > first_part * 1.1:
-            return "rising"
-        elif last_part < first_part * 0.9:
-            return "falling"
-        else:
-            return "stable"
+        return min(100, confidence)
