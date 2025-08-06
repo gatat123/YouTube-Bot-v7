@@ -1,342 +1,282 @@
-"""
-Google Trends 서비스 - 실제 데이터 검증 강화
-"""
+# services/trends_service.py - 한국 지역 전용, 가짜 데이터 없음
 
-from typing import List, Dict, Any, Optional, Tuple
-from pytrends.request import TrendReq
-import pandas as pd
-import numpy as np
-import asyncio
 import logging
-from datetime import datetime, timedelta
 import time
 import random
-
-from config import config
-from utils import cache_manager
+from typing import Dict, List, Optional, Union
+from pytrends.request import TrendReq
+import pandas as pd
+from datetime import datetime, timedelta
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from requests.packages.urllib3.util.ssl_ import create_urllib3_context
+import ssl
 
 logger = logging.getLogger(__name__)
 
-
 class TrendsService:
-    """Google Trends API 서비스 - 실제 데이터 보장"""
+    """Google Trends API 서비스 (한국 전용 강력 우회)"""
     
     def __init__(self):
-        # 여러 프록시/헤더 옵션으로 시도
-        self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'
+        self.pytrends = None
+        self.last_request_time = 0
+        self.request_count = 0
+        self.session_pool = []  # 여러 세션 관리
+        self.current_session_idx = 0
+        self._init_session_pool()
+        
+    def _create_session(self, session_id: int):
+        """강화된 세션 생성"""
+        session = requests.Session()
+        
+        # SSL 컨텍스트 커스터마이징
+        class CustomAdapter(HTTPAdapter):
+            def init_poolmanager(self, *args, **kwargs):
+                context = create_urllib3_context()
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                kwargs['ssl_context'] = context
+                return super().init_poolmanager(*args, **kwargs)
+        
+        # urllib3 버전 호환성
+        try:
+            retries = Retry(
+                total=10,  # 재시도 횟수 증가
+                backoff_factor=1.0,  # 백오프 팩터 증가
+                status_forcelist=[429, 500, 502, 503, 504, 403],
+                allowed_methods=["GET", "POST", "HEAD", "OPTIONS"]
+            )
+        except TypeError:
+            retries = Retry(
+                total=10,
+                backoff_factor=1.0,
+                status_forcelist=[429, 500, 502, 503, 504, 403],
+                method_whitelist=["GET", "POST", "HEAD", "OPTIONS"]
+            )
+            
+        adapter = CustomAdapter(max_retries=retries)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+        
+        # 다양한 User-Agent 풀
+        user_agents = [
+            # Chrome Windows
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            # Chrome Mac
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            # Firefox
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            # Edge
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+            # Safari
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15'
         ]
         
-        # 기본 TrendReq 초기화
-        self._init_pytrends()
-        
-        # 앵커 키워드 (비교 기준)
-        self.anchor_keywords = {
-            'general': '유튜브',
-            'game': '게임',
-            'food': '요리',
-            'vlog': '일상',
-            'beauty': '화장품',
-            'education': '공부',
-            'tech': '스마트폰',
-            'music': '음악'
+        # 세션별 다른 헤더 설정
+        headers = {
+            'User-Agent': user_agents[session_id % len(user_agents)],
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'Connection': 'keep-alive',
+            'DNT': '1'
         }
         
-        # 재시도 설정
-        self.max_retries = 3
-        self.retry_delay = 2
+        # 리퍼러 추가 (구글 검색에서 온 것처럼)
+        if session_id % 3 == 0:
+            headers['Referer'] = 'https://www.google.com/'
+        elif session_id % 3 == 1:
+            headers['Referer'] = 'https://www.google.co.kr/'
         
-        logger.info("Google Trends 서비스 초기화 완료 (실제 데이터 모드)")
-    
-    def _init_pytrends(self):
-        """PyTrends 초기화 with 랜덤 User-Agent"""
-        user_agent = random.choice(self.user_agents)
-        self.pytrends = TrendReq(
-            hl='ko',  # 한국어
-            tz=540,   # 한국 시간대 (UTC+9)
-            timeout=(10, 25),
-            proxies=[],
-            retries=2,
-            backoff_factor=0.5,
-            requests_args={'headers': {'User-Agent': user_agent}}
-        )
-    
-    async def analyze_keywords_batch(self, 
-                                   keywords: List[str], 
-                                   category: Optional[str] = None) -> List[Dict[str, Any]]:
-        """키워드 배치 분석 - 실제 데이터 보장"""
-        results = []
+        session.headers.update(headers)
         
-        # 카테고리별 앵커 선택
-        anchor = self._select_anchor(category)
+        # 쿠키 설정 (구글 세션처럼 보이게)
+        session.cookies.set('NID', f'511=fake_nid_{random.randint(1000000, 9999999)}', domain='.google.com')
+        session.cookies.set('1P_JAR', f'2024-{random.randint(1,12)}-{random.randint(1,28)}', domain='.google.com')
         
-        # 배치 처리 (Google Trends는 최대 5개)
-        batch_size = 4  # 앵커 포함 5개
+        return session
         
-        for i in range(0, len(keywords), batch_size):
-            batch = keywords[i:i+batch_size]
+    def _init_session_pool(self):
+        """세션 풀 초기화 (5개 세션 관리)"""
+        self.session_pool = []
+        for i in range(5):
+            session = self._create_session(i)
+            self.session_pool.append(session)
+            logger.info(f"세션 {i+1}/5 생성 완료")
             
-            # 실제 데이터 가져오기 시도
-            batch_result = await self._get_real_trends_data(batch, anchor)
+    def _get_next_session(self):
+        """라운드 로빈 방식으로 세션 선택"""
+        session = self.session_pool[self.current_session_idx]
+        self.current_session_idx = (self.current_session_idx + 1) % len(self.session_pool)
+        return session
             
-            if batch_result:
-                results.extend(batch_result)
-            else:
-                # 실패 시 기본값 제공 (하지만 실제 데이터임을 표시)
-                logger.warning(f"Trends 데이터 수집 실패: {batch}")
-                results.extend(self._generate_fallback_data(batch, is_real=False))
-            
-            # API 제한 회피를 위한 지연
-            await asyncio.sleep(random.uniform(1, 3))
-        
-        return results
-    
-    async def _get_real_trends_data(self, keywords: List[str], anchor: str) -> Optional[List[Dict]]:
-        """실제 Google Trends 데이터 가져오기"""
-        for attempt in range(self.max_retries):
-            try:
-                # 키워드 리스트 준비 (앵커 포함)
-                kw_list = [anchor] + keywords
-                
-                # Google Trends 데이터 요청
-                logger.info(f"Google Trends 요청: {kw_list}")
-                
-                # 비동기로 실행
-                result = await asyncio.to_thread(
-                    self._fetch_trends_data,
-                    kw_list
-                )
-                
-                if result:
-                    logger.info(f"실제 Trends 데이터 수집 성공: {len(result)} 키워드")
-                    return result
-                
-            except Exception as e:
-                logger.error(f"Trends API 오류 (시도 {attempt + 1}): {e}")
-                
-                # User-Agent 변경 후 재시도
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(self.retry_delay * (attempt + 1))
-                    self._init_pytrends()  # 새로운 User-Agent로 재초기화
-        
-        return None
-    
-    def _fetch_trends_data(self, kw_list: List[str]) -> List[Dict]:
-        """동기적으로 Trends 데이터 가져오기"""
+    def _init_pytrends_with_session(self, session):
+        """특정 세션으로 pytrends 초기화"""
         try:
-            # 1. Interest Over Time (시간별 관심도)
-            self.pytrends.build_payload(
-                kw_list,
-                timeframe='today 3-m',  # 최근 3개월
+            # 한국 설정으로만 시도
+            self.pytrends = TrendReq(
+                hl='ko',  # 한국어
+                tz=540,   # KST (UTC+9)
                 geo='KR',  # 한국
-                gprop=''   # 전체 검색
+                timeout=(30, 60),  # 연결 타임아웃 30초, 읽기 타임아웃 60초
+                retries=5,
+                backoff_factor=2.0
             )
             
-            interest_df = self.pytrends.interest_over_time()
+            # 세션 교체
+            self.pytrends.requests = session
             
-            # 데이터가 없으면 None 반환
-            if interest_df.empty:
-                logger.warning("Interest over time 데이터 없음")
-                return self._try_alternative_fetch(kw_list)
+            # 프록시 설정 (옵션)
+            # self.pytrends.proxies = {
+            #     'http': 'http://proxy.example.com:8080',
+            #     'https': 'https://proxy.example.com:8080'
+            # }
             
-            # 2. Related Queries (연관 검색어)
-            related_queries = self.pytrends.related_queries()
-            
-            # 3. Interest by Region (지역별 관심도)
-            try:
-                region_df = self.pytrends.interest_by_region(resolution='COUNTRY', inc_low_vol=True)
-            except:
-                region_df = pd.DataFrame()
-            
-            # 결과 포맷팅
-            results = []
-            for keyword in kw_list[1:]:  # 앵커 제외
-                if keyword in interest_df.columns:
-                    keyword_data = {
-                        'keyword': keyword,
-                        'is_real_data': True,
-                        'interest_over_time': interest_df[keyword].tolist(),
-                        'average_interest': float(interest_df[keyword].mean()),
-                        'max_interest': float(interest_df[keyword].max()),
-                        'trend_direction': self._calculate_trend_direction(interest_df[keyword]),
-                        'related_queries': self._extract_related_queries(related_queries, keyword),
-                        'volatility': float(interest_df[keyword].std()),
-                        'recent_growth': self._calculate_recent_growth(interest_df[keyword]),
-                        'data_timestamp': datetime.now().isoformat()
-                    }
-                    
-                    # 지역 데이터 추가
-                    if not region_df.empty and keyword in region_df.columns:
-                        keyword_data['regional_interest'] = region_df[keyword].to_dict()
-                    
-                    results.append(keyword_data)
-            
-            return results
+            logger.info("✅ pytrends 초기화 성공 (KR 전용)")
+            return True
             
         except Exception as e:
-            logger.error(f"Trends 데이터 가져오기 실패: {e}")
-            return []
-    
-    def _try_alternative_fetch(self, kw_list: List[str]) -> List[Dict]:
-        """대체 방법으로 데이터 가져오기"""
-        results = []
+            logger.error(f"pytrends 초기화 실패: {e}")
+            return False
+            
+    def _aggressive_wait(self):
+        """공격적인 대기 전략"""
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
         
-        # 키워드 하나씩 시도
-        for keyword in kw_list[1:]:  # 앵커 제외
-            try:
-                self.pytrends.build_payload(
-                    [keyword],
-                    timeframe='today 1-m',  # 더 짧은 기간
-                    geo='KR'
-                )
-                
-                interest_df = self.pytrends.interest_over_time()
-                
-                if not interest_df.empty and keyword in interest_df.columns:
-                    results.append({
-                        'keyword': keyword,
-                        'is_real_data': True,
-                        'interest_over_time': interest_df[keyword].tolist(),
-                        'average_interest': float(interest_df[keyword].mean()),
-                        'max_interest': float(interest_df[keyword].max()),
-                        'trend_direction': self._calculate_trend_direction(interest_df[keyword]),
-                        'data_source': 'alternative_fetch',
-                        'data_timestamp': datetime.now().isoformat()
-                    })
-                    
-                time.sleep(0.5)  # 짧은 지연
-                
-            except Exception as e:
-                logger.error(f"대체 fetch 실패 ({keyword}): {e}")
-                continue
-        
-        return results
-    
-    def _calculate_trend_direction(self, series: pd.Series) -> str:
-        """트렌드 방향 계산"""
-        if len(series) < 2:
-            return "stable"
-        
-        # 최근 데이터와 과거 데이터 비교
-        recent = series[-10:].mean() if len(series) >= 10 else series[-len(series)//2:].mean()
-        past = series[:10].mean() if len(series) >= 10 else series[:len(series)//2].mean()
-        
-        if recent > past * 1.2:
-            return "rising"
-        elif recent < past * 0.8:
-            return "falling"
+        # 요청 횟수에 따른 점진적 대기 시간 증가
+        if self.request_count < 5:
+            base_wait = random.uniform(5, 10)  # 5-10초
+        elif self.request_count < 10:
+            base_wait = random.uniform(15, 30)  # 15-30초
+        elif self.request_count < 20:
+            base_wait = random.uniform(30, 60)  # 30-60초
         else:
-            return "stable"
-    
-    def _calculate_recent_growth(self, series: pd.Series) -> float:
-        """최근 성장률 계산"""
-        if len(series) < 2:
-            return 0.0
-        
-        recent = series[-5:].mean() if len(series) >= 5 else series[-1]
-        past = series[-10:-5].mean() if len(series) >= 10 else series[0]
-        
-        if past == 0:
-            return 0.0
-        
-        return ((recent - past) / past) * 100
-    
-    def _extract_related_queries(self, related_queries: Dict, keyword: str) -> List[str]:
-        """연관 검색어 추출"""
-        queries = []
-        
-        if keyword in related_queries:
-            # Top queries
-            if 'top' in related_queries[keyword] and related_queries[keyword]['top'] is not None:
-                top_df = related_queries[keyword]['top']
-                if not top_df.empty:
-                    queries.extend(top_df['query'].head(5).tolist())
+            base_wait = random.uniform(60, 120)  # 1-2분
             
-            # Rising queries
-            if 'rising' in related_queries[keyword] and related_queries[keyword]['rising'] is not None:
-                rising_df = related_queries[keyword]['rising']
-                if not rising_df.empty:
-                    queries.extend(rising_df['query'].head(3).tolist())
+        # 추가 랜덤 요소
+        jitter = random.uniform(0, base_wait * 0.2)
+        total_wait = base_wait + jitter
         
-        return list(set(queries))[:8]  # 최대 8개
-    
-    def _generate_fallback_data(self, keywords: List[str], is_real: bool = False) -> List[Dict]:
-        """폴백 데이터 생성 (실제 데이터 수집 실패 시)"""
-        results = []
-        
-        for keyword in keywords:
-            results.append({
-                'keyword': keyword,
-                'is_real_data': is_real,
-                'average_interest': 50,
-                'max_interest': 75,
-                'trend_direction': 'stable',
-                'error': 'Google Trends 데이터 수집 실패',
-                'fallback': True,
-                'data_timestamp': datetime.now().isoformat()
-            })
-        
-        return results
-    
-    def _select_anchor(self, category: Optional[str]) -> str:
-        """카테고리별 앵커 키워드 선택"""
-        if category and category.lower() in self.anchor_keywords:
-            return self.anchor_keywords[category.lower()]
-        return self.anchor_keywords['general']
-    
-    async def get_trending_topics(self, region: str = 'KR') -> List[Dict]:
-        """현재 트렌딩 토픽 가져오기"""
-        try:
-            trending = await asyncio.to_thread(
-                self.pytrends.trending_searches,
-                pn='south_korea'
-            )
+        if time_since_last < total_wait:
+            sleep_time = total_wait - time_since_last
+            logger.info(f"⏳ 대기 중... {sleep_time:.1f}초 (요청 #{self.request_count + 1})")
+            time.sleep(sleep_time)
             
-            if not trending.empty:
-                topics = trending[0].head(20).tolist()
-                return [
-                    {
-                        'topic': topic,
-                        'rank': i + 1,
-                        'is_real_data': True
-                    }
-                    for i, topic in enumerate(topics)
-                ]
-        except Exception as e:
-            logger.error(f"트렌딩 토픽 가져오기 실패: {e}")
+        self.last_request_time = time.time()
+        self.request_count += 1
         
-        return []
-    
-    async def get_youtube_search_trends(self, keywords: List[str]) -> List[Dict]:
-        """YouTube 특화 트렌드 분석"""
-        results = []
+    def get_interest_over_time(self, keywords: List[str], timeframe: str = 'today 3-m') -> Optional[pd.DataFrame]:
+        """트렌드 데이터 가져오기 (실패시 None 반환)"""
+        # 키워드 검증
+        keywords = [k.strip() for k in keywords if k and k.strip()][:5]
         
-        for keyword in keywords[:10]:  # 최대 10개
+        if not keywords:
+            logger.error("유효한 키워드가 없습니다")
+            return None
+            
+        # 최대 재시도 횟수
+        max_attempts = 10
+        
+        for attempt in range(max_attempts):
             try:
-                # YouTube 검색 트렌드
+                # 대기
+                self._aggressive_wait()
+                
+                # 세션 선택
+                session = self._get_next_session()
+                
+                # pytrends 재초기화
+                if not self._init_pytrends_with_session(session):
+                    continue
+                    
+                logger.info(f"🔍 Google Trends 요청 시도 {attempt + 1}/{max_attempts}: {keywords}")
+                
+                # 페이로드 빌드
                 self.pytrends.build_payload(
-                    [keyword],
-                    timeframe='today 1-m',
-                    geo='KR',
-                    gprop='youtube'  # YouTube 검색만
+                    keywords, 
+                    cat=0,
+                    timeframe=timeframe,
+                    geo='KR',  # 한국 고정
+                    gprop=''
                 )
                 
-                interest_df = self.pytrends.interest_over_time()
+                # 데이터 요청
+                data = self.pytrends.interest_over_time()
                 
-                if not interest_df.empty:
-                    results.append({
-                        'keyword': keyword,
-                        'youtube_interest': float(interest_df[keyword].mean()),
-                        'youtube_trend': self._calculate_trend_direction(interest_df[keyword]),
-                        'is_real_data': True
-                    })
+                if data is not None and not data.empty:
+                    logger.info(f"✅ 데이터 획득 성공! (시도 {attempt + 1})")
+                    # isPartial 컬럼 제거
+                    if 'isPartial' in data.columns:
+                        data = data.drop('isPartial', axis=1)
+                    return data
+                else:
+                    logger.warning(f"❌ 빈 데이터 (시도 {attempt + 1})")
+                    
+            except requests.exceptions.TooManyRedirects:
+                logger.error(f"리다이렉트 과다 (시도 {attempt + 1})")
+                time.sleep(random.uniform(30, 60))
                 
-                await asyncio.sleep(1)  # API 제한 회피
-                
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    logger.error(f"⚠️ Rate limit! 긴 대기... (시도 {attempt + 1})")
+                    time.sleep(random.uniform(300, 600))  # 5-10분 대기
+                else:
+                    logger.error(f"HTTP 에러: {e} (시도 {attempt + 1})")
+                    
             except Exception as e:
-                logger.error(f"YouTube 트렌드 분석 실패 ({keyword}): {e}")
-                continue
+                logger.error(f"예외 발생: {e} (시도 {attempt + 1})")
+                
+            # 실패 후 추가 대기
+            if attempt < max_attempts - 1:
+                wait_time = random.uniform(30, 90) * (attempt + 1)
+                logger.info(f"⏳ 재시도 전 대기: {wait_time:.1f}초")
+                time.sleep(wait_time)
+                
+        # 모든 시도 실패
+        logger.error(f"❌ Google Trends 데이터 획득 완전 실패 (총 {max_attempts}회 시도)")
+        return None
         
-        return results
+    def get_related_queries(self, keyword: str) -> Optional[Dict]:
+        """관련 검색어 가져오기"""
+        try:
+            self._aggressive_wait()
+            
+            session = self._get_next_session()
+            self._init_pytrends_with_session(session)
+            
+            self.pytrends.build_payload([keyword], geo='KR')
+            related = self.pytrends.related_queries()
+            
+            return related.get(keyword, {})
+            
+        except Exception as e:
+            logger.error(f"관련 검색어 획득 실패: {e}")
+            return None
+            
+    def get_trending_searches(self) -> Optional[pd.DataFrame]:
+        """한국 실시간 인기 검색어"""
+        try:
+            self._aggressive_wait()
+            
+            session = self._get_next_session()
+            self._init_pytrends_with_session(session)
+            
+            trending = self.pytrends.trending_searches(pn='south_korea')
+            return trending
+            
+        except Exception as e:
+            logger.error(f"실시간 검색어 획득 실패: {e}")
+            return None
