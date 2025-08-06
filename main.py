@@ -40,17 +40,20 @@ class YouTubeAnalyzerBot(commands.Bot):
         )
         
         # 서비스 초기화 (올바른 순서로)
-        self.trends_service = TrendsService()  # 먼저 생성
+        self.trends_service = TrendsService()
+        self.youtube_service = YouTubeService()
+        self.api_manager = APIManager()
         self.keyword_expander = KeywordExpander()
-        self.trend_analyzer = TrendAnalyzer(
-            trends_service=self.trends_service,
-            keyword_expander=self.keyword_expander,
-            cache_manager=cache_manager
-        )
         self.competitor_analyzer = CompetitorAnalyzer()
         self.prediction_engine = PredictionEngine()
-        self.api_manager = APIManager()
-        self.youtube_service = YouTubeService()
+        
+        # TrendAnalyzer 초기화 - 올바른 인자 전달
+        self.trend_analyzer = TrendAnalyzer(
+            trends_service=self.trends_service,
+            youtube_service=self.youtube_service,
+            api_manager=self.api_manager,
+            progress_tracker=None  # 필요시 추가
+        )
         
         logger.info("YouTube 분석 봇 v7 초기화 완료")
     
@@ -166,11 +169,15 @@ async def analyze_command(
         # === Phase 3: 1차 필터링 (90 → 60개) ===
         await tracker.update_stage(ProgressStage.FILTERING)
         
-        filtered_keywords_1st = bot.trend_analyzer.filter_keywords_first_pass(
-            expanded_keywords,
-            trend_results,
-            target_count=60
-        )
+        # TrendAnalysis 객체를 딕셔너리로 변환하여 필터링
+        trend_results_dict = [tr.to_dict() for tr in trend_results]
+        
+        # 기회 점수 기준으로 상위 60개 선별
+        filtered_keywords_1st = sorted(
+            trend_results_dict,
+            key=lambda x: x['opportunity_score'],
+            reverse=True
+        )[:60]
         
         await tracker.update_sub_progress(0.5, f"1차 필터링 완료: {len(filtered_keywords_1st)}개")
         
@@ -198,12 +205,17 @@ async def analyze_command(
         # === Phase 6: 2차 필터링 (60 → 40개) ===
         await tracker.update_sub_progress(0.8, "2차 정밀 필터링 중...")
         
-        final_keywords = bot.trend_analyzer.filter_keywords_second_pass(
+        # YouTube 데이터 병합
+        for kw in filtered_keywords_1st[:30]:
+            if kw['keyword'] in youtube_data:
+                kw['youtube_metrics'] = youtube_data[kw['keyword']]
+        
+        # 기회 점수 재계산 후 최종 40개 선별
+        final_keywords = sorted(
             filtered_keywords_1st,
-            youtube_data,
-            competitor_data,
-            target_count=40
-        )
+            key=lambda x: x['opportunity_score'],
+            reverse=True
+        )[:40]
         
         # === Phase 7: 예측 분석 ===
         await tracker.update_stage(ProgressStage.PREDICTION)
@@ -212,7 +224,7 @@ async def analyze_command(
         for kw in final_keywords[:10]:  # 상위 10개 예측
             prediction = await bot.prediction_engine.predict_performance(
                 keyword_data=kw,
-                trend_data=next((t for t in trend_results if t['keyword'] == kw['keyword']), {}),
+                trend_data=kw,  # 이미 트렌드 데이터 포함
                 competitor_data=competitor_data.get(kw['keyword'], {}),
                 category=category
             )
@@ -245,7 +257,7 @@ async def analyze_command(
                 'total_expanded': len(expanded_keywords),
                 'first_filter': len(filtered_keywords_1st),
                 'final_count': len(final_keywords),
-                'trends_data': len([t for t in trend_results if t.get('is_real_data', False)]),
+                'trends_data': len([t for t in trend_results if t.google_trends and t.google_trends.get('data_points', 0) > 0]),
                 'youtube_data': len(youtube_data)
             }
         )
@@ -303,7 +315,8 @@ def create_final_report(content: str, category: Optional[str],
     top_keywords = []
     for i, kw in enumerate(final_keywords[:10], 1):
         score = kw.get('opportunity_score', 0)
-        trend = kw.get('trend_direction', 'stable')
+        trend_data = kw.get('google_trends', {})
+        trend = trend_data.get('trend_direction', 'stable')
         emoji = "🔥" if trend == "rising" else "📈" if trend == "stable" else "📉"
         top_keywords.append(f"{i}. {emoji} **{kw['keyword']}** (점수: {score:.1f})")
     
