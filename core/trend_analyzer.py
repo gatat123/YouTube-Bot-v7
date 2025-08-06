@@ -9,7 +9,7 @@ from datetime import datetime
 import numpy as np
 import logging
 
-from services import YouTubeService, TrendsService, TikTokService, TwitterService
+from services import YouTubeService, TrendsService
 from utils import cache_manager, BatchProgressTracker
 
 logger = logging.getLogger(__name__)
@@ -43,8 +43,7 @@ class TrendAnalyzer:
     def __init__(self):
         self.youtube = YouTubeService()
         self.trends = TrendsService()
-        self.tiktok = TikTokService()
-        self.twitter = TwitterService()
+        # TikTok and Twitter services removed per v7 requirements
     
     async def analyze_keywords(self, 
                              keywords: List[str],
@@ -141,24 +140,10 @@ class TrendAnalyzer:
         return analysis
     
     async def _get_social_metrics(self, keyword: str) -> Dict[str, Any]:
-        """소셜 미디어 메트릭 수집"""
-        metrics = {}
-        
-        # TikTok 분석
-        try:
-            tiktok_viral = await self.tiktok.analyze_viral_potential(keyword)
-            metrics['tiktok'] = tiktok_viral
-        except Exception as e:
-            logger.debug(f"TikTok 분석 실패: {e}")
-        
-        # Twitter 분석
-        try:
-            twitter_sentiment = await self.twitter.analyze_sentiment(keyword)
-            metrics['twitter'] = twitter_sentiment
-        except Exception as e:
-            logger.debug(f"Twitter 분석 실패: {e}")
-        
-        return metrics
+        """소셜 미디어 메트릭 수집 - v7에서는 제거됨"""
+        # TikTok and Twitter services removed in v7
+        # Returning empty metrics for now
+        return {}
     
     def _calculate_opportunity_score(self, analysis: TrendAnalysis) -> float:
         """종합 기회 점수 계산"""

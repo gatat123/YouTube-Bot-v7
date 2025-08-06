@@ -4,12 +4,10 @@ Services 모듈 - 외부 API 서비스
 
 from .youtube_service import YouTubeService
 from .trends_service import TrendsService
-from .tiktok_service import TikTokService
-from .twitter_service import TwitterService
+from .gemini_service import generate_titles_with_gemini
 
 __all__ = [
     'YouTubeService',
     'TrendsService',
-    'TikTokService',
-    'TwitterService'
+    'generate_titles_with_gemini'
 ]

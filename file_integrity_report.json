@@ -1,0 +1,350 @@
+{
+  "scan_date": "2025-08-06T16:45:17.585445",
+  "project_root": "C:\\Users\\a0109\\Desktop\\youtube-bot-v3\\youtube-keyword-bot-v7",
+  "summary": {
+    "total_files_scanned": 16,
+    "files_with_issues": 12,
+    "critical_files": 0,
+    "functional_files": 0,
+    "style_only_files": 12,
+    "healthy_files": 4,
+    "health_percentage": 25.0,
+    "functional_health_percentage": 62.5
+  },
+  "severity_breakdown": {
+    "CRITICAL": 0,
+    "HIGH": 0,
+    "MEDIUM": 0,
+    "LOW": 15
+  },
+  "issue_types": {
+    "MISSING_NEWLINE": 5,
+    "INDENTED_END": 10
+  },
+  "detailed_issues": [
+    {
+      "path": "config.py",
+      "size": 5570,
+      "lines": 196,
+      "issues": [
+        {
+          "type": "MISSING_NEWLINE",
+          "severity": "LOW",
+          "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "core\\competitor_analyzer.py",
+      "size": 17755,
+      "lines": 483,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "core\\keyword_expander.py",
+      "size": 12314,
+      "lines": 376,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "core\\prediction_engine.py",
+      "size": 11483,
+      "lines": 355,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        },
+        {
+          "type": "MISSING_NEWLINE",
+          "severity": "LOW",
+          "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "core\\trend_analyzer.py",
+      "size": 10692,
+      "lines": 314,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "file_integrity_checker.py",
+      "size": 18134,
+      "lines": 481,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "main.py",
+      "size": 12001,
+      "lines": 389,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        },
+        {
+          "type": "MISSING_NEWLINE",
+          "severity": "LOW",
+          "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "services\\gemini_service.py",
+      "size": 2362,
+      "lines": 92,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "services\\trends_service.py",
+      "size": 12357,
+      "lines": 342,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        },
+        {
+          "type": "MISSING_NEWLINE",
+          "severity": "LOW",
+          "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "services\\youtube_service.py",
+      "size": 15767,
+      "lines": 433,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "utils\\cache_manager.py",
+      "size": 9912,
+      "lines": 301,
+      "issues": [
+        {
+          "type": "MISSING_NEWLINE",
+          "severity": "LOW",
+          "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+        }
+      ]
+    },
+    {
+      "path": "utils\\progress_tracker.py",
+      "size": 10303,
+      "lines": 295,
+      "issues": [
+        {
+          "type": "INDENTED_END",
+          "severity": "LOW",
+          "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+        }
+      ]
+    }
+  ],
+  "categorized_issues": {
+    "critical_files": [],
+    "functional_files": [],
+    "style_only_files": [
+      {
+        "path": "config.py",
+        "size": 5570,
+        "lines": 196,
+        "issues": [
+          {
+            "type": "MISSING_NEWLINE",
+            "severity": "LOW",
+            "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "core\\competitor_analyzer.py",
+        "size": 17755,
+        "lines": 483,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "core\\keyword_expander.py",
+        "size": 12314,
+        "lines": 376,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "core\\prediction_engine.py",
+        "size": 11483,
+        "lines": 355,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          },
+          {
+            "type": "MISSING_NEWLINE",
+            "severity": "LOW",
+            "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "core\\trend_analyzer.py",
+        "size": 10692,
+        "lines": 314,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "file_integrity_checker.py",
+        "size": 18134,
+        "lines": 481,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "main.py",
+        "size": 12001,
+        "lines": 389,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          },
+          {
+            "type": "MISSING_NEWLINE",
+            "severity": "LOW",
+            "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "services\\gemini_service.py",
+        "size": 2362,
+        "lines": 92,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "services\\trends_service.py",
+        "size": 12357,
+        "lines": 342,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          },
+          {
+            "type": "MISSING_NEWLINE",
+            "severity": "LOW",
+            "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "services\\youtube_service.py",
+        "size": 15767,
+        "lines": 433,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "utils\\cache_manager.py",
+        "size": 9912,
+        "lines": 301,
+        "issues": [
+          {
+            "type": "MISSING_NEWLINE",
+            "severity": "LOW",
+            "message": "파일 끝에 개행문자가 없습니다 (스타일 문제)"
+          }
+        ]
+      },
+      {
+        "path": "utils\\progress_tracker.py",
+        "size": 10303,
+        "lines": 295,
+        "issues": [
+          {
+            "type": "INDENTED_END",
+            "severity": "LOW",
+            "message": "파일이 들여쓰기된 라인으로 끝납니다 (스타일 문제)"
+          }
+        ]
+      }
+    ]
+  }
+}

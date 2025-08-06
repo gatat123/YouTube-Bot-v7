@@ -1,4 +1,96 @@
-youtube.youtube:
+"""
+경쟁자 분석 모듈 - YouTube 상위 채널 분석
+"""
+
+import asyncio
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+import numpy as np
+import logging
+
+from services import YouTubeService
+from utils import cache_manager
+
+logger = logging.getLogger(__name__)
+
+
+class CompetitorAnalyzer:
+    """YouTube 경쟁 채널 및 콘텐츠 분석"""
+    
+    def __init__(self):
+        self.youtube = YouTubeService()
+        logger.info("경쟁자 분석기 초기화")
+    
+    async def analyze_competition(self, 
+                                 keyword: str,
+                                 depth: int = 10) -> Dict[str, Any]:
+        """
+        키워드 경쟁 상황 종합 분석
+        
+        Args:
+            keyword: 분석할 키워드
+            depth: 분석할 상위 채널 수
+            
+        Returns:
+            경쟁 분석 결과
+        """
+        try:
+            # 캐시 확인
+            cache_key = f"competition:{keyword}:{depth}"
+            cached_result = await cache_manager.get(cache_key)
+            if cached_result:
+                logger.info(f"경쟁 분석 캐시 히트: {keyword}")
+                return cached_result
+            
+            # 병렬 분석 작업
+            tasks = [
+                self._analyze_top_channels(keyword, depth),
+                self._analyze_content_gaps(keyword, []),  # 채널 정보는 나중에 전달
+                self._analyze_upload_patterns([]),
+                self._analyze_competitive_landscape([])
+            ]
+            
+            # 첫 번째 작업 완료 대기 (채널 정보 필요)
+            top_channels = await tasks[0]
+            
+            # 나머지 분석 수행
+            content_gaps = await self._analyze_content_gaps(keyword, top_channels)
+            upload_patterns = self._analyze_upload_patterns(top_channels)
+            collab_opportunities = self._analyze_collaboration_opportunities(top_channels)
+            landscape = self._analyze_competitive_landscape(top_channels)
+            
+            # 결과 통합
+            result = {
+                'keyword': keyword,
+                'analyzed_at': datetime.now().isoformat(),
+                'top_channels': top_channels,
+                'content_gaps': content_gaps,
+                'upload_patterns': upload_patterns,
+                'collaboration_opportunities': collab_opportunities,
+                'competitive_landscape': landscape,
+                'summary': self._generate_competition_summary(
+                    top_channels, content_gaps, landscape
+                )
+            }
+            
+            # 캐시 저장
+            await cache_manager.set(cache_key, result, ttl=43200, category='competitor')
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"경쟁 분석 오류: {e}")
+            return {
+                'keyword': keyword,
+                'error': str(e),
+                'top_channels': [],
+                'content_gaps': [],
+                'competitive_landscape': {'market_saturation': 'unknown'}
+            }
+    
+    async def _analyze_top_channels(self, keyword: str, depth: int) -> List[Dict[str, Any]]:
+        """상위 채널 분석"""
+        if not self.youtube.youtube:
             return []
         
         try:
@@ -357,3 +449,35 @@ youtube.youtube:
             score += 10
         
         return min(100, score)
+    
+    def _generate_competition_summary(self, 
+                                    top_channels: List[Dict],
+                                    content_gaps: List[str],
+                                    landscape: Dict[str, Any]) -> Dict[str, str]:
+        """경쟁 분석 요약 생성"""
+        
+        # 채널 평균 구독자
+        avg_subs = np.mean([ch['subscriber_count'] for ch in top_channels]) if top_channels else 0
+        
+        summary = {
+            'market_overview': f"시장 포화도: {landscape['market_saturation']}, "
+                              f"평균 구독자: {avg_subs:,.0f}명",
+            'entry_strategy': self._recommend_entry_strategy(landscape['market_saturation']),
+            'content_opportunities': f"발견된 콘텐츠 갭: {len(content_gaps)}개",
+            'top_gap': content_gaps[0] if content_gaps else "추가 분석 필요",
+            'collaboration_potential': "중간" if len(top_channels) > 5 else "높음"
+        }
+        
+        return summary
+    
+    def _recommend_entry_strategy(self, market_saturation: str) -> str:
+        """시장 진입 전략 추천"""
+        
+        strategies = {
+            'low': "블루오션 기회! 빠른 콘텐츠 제작으로 선점 효과 노리세요.",
+            'medium': "차별화 전략 필요. 니치 타겟팅과 고품질 콘텐츠로 승부하세요.",
+            'high': "포화 시장. 혁신적 포맷이나 콜라보레이션 전략을 고려하세요.",
+            'unknown': "추가 시장 분석이 필요합니다."
+        }
+        
+        return strategies.get(market_saturation, strategies['unknown'])

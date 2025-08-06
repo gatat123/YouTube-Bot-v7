@@ -1,0 +1,46 @@
+YouTube Keyword Bot v7 File Integrity Check and Repair Project
+
+OVERVIEW:
+Comprehensive review and repair of YouTube Keyword Bot v7 project files. The project previously had corrupted files (specifically keyword_expander.py) and needs a full integrity check to identify and fix any other corrupted or incomplete files.
+
+OBJECTIVES:
+1. Check all Python files for corruption or incomplete code
+2. Verify file structure matches development plan requirements
+3. Fix corrupted files using backups or recreation
+4. Ensure all dependencies and configurations are correct
+5. Validate the project is ready for deployment
+
+REQUIREMENTS:
+
+File Integrity Checks:
+- Check main.py for complete Discord bot implementation
+- Verify config.py has all required settings
+- Check all core modules (keyword_expander, trend_analyzer, competitor_analyzer, prediction_engine)
+- Verify all service modules (youtube_service, trends_service, gemini_service)
+- Check all utility modules (cache_manager, progress_tracker, api_manager)
+- Validate all __init__.py files
+
+Corruption Detection:
+- Identify files that start mid-function or mid-class
+- Find files with syntax errors or incomplete implementations
+- Detect missing imports or undefined references
+- Check for truncated files or sudden endings
+
+Repair Actions:
+- Use backup files from backup_old_files folder when available
+- Recreate missing or severely corrupted files based on development plan
+- Fix import statements and dependencies
+- Ensure all classes and functions are complete
+
+Validation:
+- Verify all required files exist per development plan
+- Check requirements.txt has all necessary dependencies
+- Validate configuration files (.env.example, railway.json, etc.)
+- Ensure deployment files are properly configured
+
+SUCCESS CRITERIA:
+- All Python files are syntactically correct and complete
+- No files have corruption indicators (mid-function starts, truncation)
+- All required modules per development plan are present
+- Project structure matches the planned architecture
+- Ready for testing and deployment
