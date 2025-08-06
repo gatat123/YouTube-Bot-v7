@@ -16,7 +16,7 @@ import sys
 from config import config
 from core import KeywordExpander, TrendAnalyzer, CompetitorAnalyzer, PredictionEngine
 from utils import cache_manager, ProgressTracker, ProgressStage, APIManager
-from services import YouTubeService
+from services import YouTubeService, TrendsService
 
 # 로깅 설정
 logging.basicConfig(
@@ -39,9 +39,14 @@ class YouTubeAnalyzerBot(commands.Bot):
             help_command=None
         )
         
-        # 서비스 초기화
+        # 서비스 초기화 (올바른 순서로)
+        self.trends_service = TrendsService()  # 먼저 생성
         self.keyword_expander = KeywordExpander()
-        self.trend_analyzer = TrendAnalyzer()
+        self.trend_analyzer = TrendAnalyzer(
+            trends_service=self.trends_service,
+            keyword_expander=self.keyword_expander,
+            cache_manager=cache_manager
+        )
         self.competitor_analyzer = CompetitorAnalyzer()
         self.prediction_engine = PredictionEngine()
         self.api_manager = APIManager()
